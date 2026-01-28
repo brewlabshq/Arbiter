@@ -1,7 +1,7 @@
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 use solana_system_interface::instruction::SystemInstruction;
+use solana_system_interface::program;
 use solana_transaction::versioned::VersionedTransaction;
-use std::str::FromStr;
 use bincode::deserialize;
 
 pub const JITO_TIP_ACCOUNTS: [&str; 8] = [
@@ -23,8 +23,8 @@ pub struct TipInfo {
 
 fn is_tip_account(account_bytes: &[u8; 32]) -> Option<&'static str> {
     for tip_account in JITO_TIP_ACCOUNTS {
-        let tip_pubkey = Pubkey::from_str(tip_account).ok()?;
-        if tip_pubkey.to_bytes() == *account_bytes {
+        let tip_pubkey = Pubkey::from_str_const(tip_account);
+        if tip_pubkey.as_ref() == *account_bytes {
             return Some(tip_account);
         }
     }
@@ -34,50 +34,47 @@ fn is_tip_account(account_bytes: &[u8; 32]) -> Option<&'static str> {
 pub fn extract_tip(tx: &VersionedTransaction) -> Option<TipInfo> {
     let message = &tx.message;
     let account_keys = message.static_account_keys();
-    let system_program = Pubkey::from_str("11111111111111111111111111111111").unwrap();
+    let system_program = program::ID;
 
-    // println!("message: {:?}", message);
+    tracing::debug!("message: {:?}", message);
     for instruction in message.instructions() {
-        // println!("instruction: {:?}", instruction);
+        tracing::debug!("instruction: {:?}", instruction);
         let program_id_index = instruction.program_id_index as usize;
         if program_id_index >= account_keys.len() {
             continue;
         }
 
-        // println!("program_id_index: {:?}", program_id_index);
+        tracing::debug!("program_id_index: {:?}", program_id_index);
         let program_id_bytes: &[u8] = account_keys[program_id_index].as_ref();
         if program_id_bytes != system_program.as_ref() {
             continue;
         }
 
-        println!("instruction.data: {:?}", instruction.data);
         let Ok(system_ix) = deserialize::<SystemInstruction>(&instruction.data) else {
             continue;
         };
-        println!("system_ix: {:?}", system_ix);
+        tracing::debug!("system_ix: {:?}", system_ix);
 
         if let SystemInstruction::Transfer { lamports } = system_ix {
+            tracing::debug!("lamports: {:?}", lamports);
             if instruction.accounts.len() < 2 {
                 continue;
             }
-            println!("instruction.accounts: {:?}", instruction.accounts);
 
             let dest_index = instruction.accounts[1] as usize;
             if dest_index >= account_keys.len() {
                 continue;
             }
-            println!("dest_index: {:?}", dest_index);
 
             let dest_bytes: &[u8] = account_keys[dest_index].as_ref();
-            println!("dest_bytes: {:?}", dest_bytes);
             let destination: [u8; 32] = match dest_bytes.try_into() {
                 Ok(arr) => arr,
                 Err(_) => continue,
             };
-            println!("destination: {:?}", destination);
+            tracing::debug!("destination: {:?}", destination);
 
             if let Some(tip_account) = is_tip_account(&destination) {
-                println!("tip_account: {:?}", tip_account);
+                tracing::debug!("tip_account: {:?}", tip_account);
                 return Some(TipInfo {
                     lamports,
                     tip_account: tip_account.to_string(),
@@ -117,8 +114,6 @@ mod tests {
         let tx = decode_mainnet_tx(MAINNET_TX_BASE64);
         let tip_info = extract_tip(&tx);
 
-        println!("tip_info: {:?}", tip_info);
-
         assert!(tip_info.is_some(), "No tip found in this transaction");
 
         let tip = tip_info.unwrap();
@@ -133,7 +128,7 @@ mod tests {
             "Tip account mismatch"
         );
 
-        println!(
+        tracing::info!(
             "SUCCESS: Found tip of {} lamports to {}",
             tip.lamports, tip.tip_account
         );
