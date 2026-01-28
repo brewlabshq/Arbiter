@@ -6,6 +6,7 @@ use solana_transaction::versioned::VersionedTransaction;
 use crate::{api::create_router, tx_auction::InternalTransaction};
 
 mod api;
+mod tip_filter;
 mod tx_auction;
 
 pub struct ArbiterState {
